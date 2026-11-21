@@ -153,12 +153,15 @@ chrome.action.onClicked.addListener((tab) => {
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(payload)
           })
-          .then(() => {
-            statusDiv.innerText = "🚀 Request Sent!";
+          .then((res) => {
+            if (!res.ok) throw new Error(res.status);
+            statusDiv.innerText = "✅ Test finished";
             statusDiv.style.color = "#28a745";
           })
-          .catch(() => {
-            statusDiv.innerText = "❌ Connection Error";
+          .catch((err) => {
+            statusDiv.innerText = err.message === "409"
+              ? "⚠️ A test is already running"
+              : "❌ Request failed (is the backend running?)";
             statusDiv.style.color = "#dc3545";
           });
         };

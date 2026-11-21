@@ -1,4 +1,16 @@
-backend/.venv/
-backend/env/
-backend/venv/
+# Secrets
+.env
 backend/.env
+
+# Python
+__pycache__/
+*.py[oc]
+.pytest_cache/
+backend/.venv/
+backend/venv/
+backend/env/
+*.egg-info
+
+# Generated at runtime
+backend/artifacts/
+*.log
