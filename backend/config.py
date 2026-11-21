@@ -14,8 +14,15 @@ LOCUST_DIR = ARTIFACTS_DIR / "locust"
 SCREENSHOTS_DIR = ARTIFACTS_DIR / "screenshots"
 BUG_REPORT_FILE = ARTIFACTS_DIR / "bug_report.txt"
 
-AGENT_MODEL = os.getenv("QA_AGENT_MODEL", "gpt-5-mini")
-VISION_MODEL = os.getenv("QA_VISION_MODEL", "gpt-4o")
+# "openai" (OPENAI_API_KEY) or "gemini" (GOOGLE_API_KEY)
+LLM_PROVIDER = os.getenv("QA_LLM_PROVIDER", "openai").lower()
+_DEFAULT_MODELS = {"openai": ("gpt-5-mini", "gpt-4o"), "gemini": ("gemini-2.5-flash", "gemini-2.5-flash")}
+if LLM_PROVIDER not in _DEFAULT_MODELS:
+    raise ValueError(f"QA_LLM_PROVIDER must be one of {sorted(_DEFAULT_MODELS)}, got {LLM_PROVIDER!r}")
+AGENT_MODEL = os.getenv("QA_AGENT_MODEL", _DEFAULT_MODELS[LLM_PROVIDER][0])
+VISION_MODEL = os.getenv("QA_VISION_MODEL", _DEFAULT_MODELS[LLM_PROVIDER][1])
+# Cap on model calls per minute (0 = no cap). Gemini free tier allows about 5.
+REQUESTS_PER_MINUTE = float(os.getenv("QA_REQUESTS_PER_MINUTE", "0"))
 HEADLESS = os.getenv("QA_HEADLESS", "false").lower() in ("1", "true", "yes")
 
 HOST = os.getenv("QA_HOST", "127.0.0.1")

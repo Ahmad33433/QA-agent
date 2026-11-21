@@ -9,9 +9,9 @@ import json
 import sys
 
 from langchain_core.messages import HumanMessage
-from langchain_openai import ChatOpenAI
 
 import config
+from llm import get_chat_model
 from browser_manager import browser
 
 original_url = ""
@@ -190,7 +190,7 @@ async def capture_and_analyze_screen(filename: str = "qa_analysis.png") -> str:
             {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{image}"}},
         ]
     )
-    response = await ChatOpenAI(model=config.VISION_MODEL).ainvoke([message])
+    response = await get_chat_model(config.VISION_MODEL).ainvoke([message])
     return f"here vision analysis: {response.content}"
 
 

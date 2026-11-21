@@ -1,4 +1,5 @@
 import asyncio
+import logging
 import os
 import sys
 from contextlib import asynccontextmanager
@@ -10,10 +11,10 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_core.tools import tool
 from langchain_mcp_adapters.client import MultiServerMCPClient
 from langchain_mcp_adapters.tools import load_mcp_tools
-from langchain_openai import ChatOpenAI
 
 import config
 import prompts
+from llm import get_chat_model
 from browser_manager import status_store
 from schemas import RunRequest
 
@@ -39,6 +40,16 @@ MCP_SERVER = {
         "env": dict(os.environ),
     }
 }
+
+
+logger = logging.getLogger("qa_agent")
+
+
+def root_cause(exc: BaseException) -> BaseException:
+    """Unwrap exception groups (raised by the MCP session's task group) to the real error."""
+    while isinstance(exc, BaseExceptionGroup) and exc.exceptions:
+        exc = exc.exceptions[0]
+    return exc
 
 
 @tool
@@ -82,6 +93,13 @@ def build_run(req: RunRequest) -> tuple[str, list[str], str]:
     return prompts.script_prompt(req.url), SCRIPT_TOOLS, "Write and run the UI test script."
 
 
+def message_text(content) -> str:
+    """Model replies are a string (OpenAI) or a list of content blocks (Gemini)."""
+    if isinstance(content, str):
+        return content
+    return "".join(b.get("text", "") if isinstance(b, dict) else str(b) for b in content)
+
+
 async def run_agent(req: RunRequest, system_prompt: str, tool_names: list[str], user_message: str) -> str:
     """Start the MCP tool server for this run, give the agent its tools, and return its report."""
     client = MultiServerMCPClient(MCP_SERVER)
@@ -94,11 +112,11 @@ async def run_agent(req: RunRequest, system_prompt: str, tool_names: list[str], 
         if missing:
             raise RuntimeError(f"MCP server is missing tools: {missing}")
         agent_tools = [by_name[name] for name in tool_names] + [update_status]
-        agent = create_agent(ChatOpenAI(model=config.AGENT_MODEL), agent_tools)
+        agent = create_agent(get_chat_model(config.AGENT_MODEL), agent_tools)
         result = await agent.ainvoke(
             {"messages": [SystemMessage(content=system_prompt), HumanMessage(content=user_message)]}
         )
-    return result["messages"][-1].content
+    return message_text(result["messages"][-1].content)
 
 
 @app.get("/status")
@@ -116,8 +134,10 @@ async def run_automation_test(req: RunRequest):
         try:
             report = await run_agent(req, system_prompt, tool_names, user_message)
         except Exception as exc:
-            status_store.update(status="error", step="failed", message=str(exc)[:200])
-            raise HTTPException(status_code=500, detail=f"Agent run failed: {exc}") from exc
+            cause = root_cause(exc)
+            logger.error("Agent run failed", exc_info=cause)
+            status_store.update(status="error", step="failed", message=str(cause)[:200])
+            raise HTTPException(status_code=500, detail=f"Agent run failed: {cause!r}"[:500]) from exc
         status_store.update(status="idle", step="finished", message="")
     return {"status": "Test Completed", "url": req.url, "report": report}
 

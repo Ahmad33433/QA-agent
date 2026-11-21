@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Demo Shop</title></head>
+<body>
+<h1>Demo Shop</h1>
+<nav><a href="/index.html">Home</a> | <a href="/pricing.html">Pricing</a></nav>
+
+<h2>Gadget</h2>
+<button id="add-to-cart">Add to cart</button>
+<span>Cart items: <b id="cart-count">0</b></span>
+
+<h2>Quantity</h2>
+<button id="minus">-</button> <span id="qty">1</span> <button id="plus">+</button>
+
+<h2>Newsletter</h2>
+<form id="news" onsubmit="return false">
+  <input id="email" type="text" placeholder="Your email">
+  <button id="subscribe">Subscribe</button>
+</form>
+<p id="news-msg"></p>
+
+<h2>Login</h2>
+<input id="user" placeholder="Username"> <input id="pass" type="password" placeholder="Password">
+<button id="login">Log in</button>
+<p id="login-msg"></p>
+
+<button id="share" onclick="document.getElementById('share-msg').textContent='Shared!'"><svg width="16" height="16"><circle cx="8" cy="8" r="6"/></svg></button>
+<span id="share-msg"></span>
+
+<script>
+// Bug 2: "Add to cart" has no handler on purpose.
+let qty = 1;
+document.getElementById('plus').onclick = () => { qty++; qty_.textContent = qty; };
+// Bug 4: no lower limit, quantity can go to 0 and below.
+document.getElementById('minus').onclick = () => { qty--; qty_.textContent = qty; };
+const qty_ = document.getElementById('qty');
+// Bug 1: any text, even "abc", is accepted as an email.
+document.getElementById('subscribe').onclick = () => {
+  document.getElementById('news-msg').textContent = 'Subscribed!';
+};
+// Working feature (control, not a bug): only admin / secret logs in.
+document.getElementById('login').onclick = () => {
+  const ok = user.value === 'admin' && pass.value === 'secret';
+  document.getElementById('login-msg').textContent = ok ? 'Welcome, admin' : 'Invalid credentials';
+};
+</script>
+</body></html>

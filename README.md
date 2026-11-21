@@ -52,13 +52,14 @@ Claude Desktop or Cursor add this to the MCP config (adjust the path):
 
 ## Setup
 
-Requirements: Python 3.13+, [uv](https://docs.astral.sh/uv/), Google Chrome, an OpenAI API key.
+Requirements: Python 3.13+, [uv](https://docs.astral.sh/uv/), Google Chrome, and an API key for
+Gemini (free tier available) or OpenAI.
 
 ```bash
 cd backend
 uv sync
 uv run playwright install chromium
-cp .env.example .env        # then put your OPENAI_API_KEY in .env
+cp .env.example .env        # choose QA_LLM_PROVIDER and add the matching API key
 uv run python main.py       # serves on http://127.0.0.1:8000
 ```
 
@@ -67,6 +68,27 @@ and select the `extension/` folder. Open any page and click the extension icon.
 
 Reports, generated scripts and screenshots are saved in `backend/artifacts/`
 (change it with `QA_ARTIFACTS_DIR`).
+
+Run one test without the extension:
+
+```bash
+uv run python cli.py http://127.0.0.1:8765/index.html --mode manual_test
+```
+
+If port 8000 is busy, set `QA_PORT`. The extension currently calls port 8000.
+
+## Try it on a page with known bugs
+
+`examples/buggy_site/` is a small shop page with 5 planted bugs (listed in `BUGS.md`):
+
+```bash
+python3 -m http.server 8765 --directory examples/buggy_site
+```
+
+Results so far (Gemini, `gemini-3.5-flash-lite`): given the scenario "type `abc` into the newsletter
+email field and click Subscribe", the agent reported that the form accepts an invalid email
+(planted bug 1). A full `manual_test` audit has not been completed yet: the Gemini free tier allows
+about 5 requests per minute and 20 per day per model, so use `QA_REQUESTS_PER_MINUTE=4` or a paid key.
 
 ## API
 
@@ -80,6 +102,8 @@ Reports, generated scripts and screenshots are saved in `backend/artifacts/`
 backend/
   main.py             FastAPI app: validation, picks prompt + tools, runs the agent (MCP client)
   mcp_server.py       MCP server that publishes the tools
+  llm.py              Builds the Gemini or OpenAI chat model
+  cli.py              Run one test from the command line
   prompts.py          System prompt for each mode
   tools.py            The 17 tools (plain async functions)
   schemas.py          Request validation (Pydantic)
@@ -87,6 +111,7 @@ backend/
   browser_manager.py  Shared Playwright browser and status
   tests/              pytest suite
 extension/            Chrome extension (Manifest V3)
+examples/buggy_site/  Demo page with planted bugs
 ```
 
 ## Tests

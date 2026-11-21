@@ -73,3 +73,8 @@ def test_second_run_while_busy_gets_409(client):
     finally:
         main.run_lock.release()
         loop.close()
+
+
+def test_message_text_handles_string_and_blocks():
+    assert main.message_text("done") == "done"
+    assert main.message_text([{"type": "text", "text": "a"}, {"type": "text", "text": "b"}]) == "ab"
