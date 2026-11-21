@@ -1,15 +1,18 @@
-"""Tools the agent can call. Each one is a thin wrapper around the shared Playwright page."""
+"""The QA tools: thin wrappers around one shared Playwright page.
+
+They are plain async functions. mcp_server.py publishes them as MCP tools; the docstrings
+and type hints become the tool descriptions and input schemas the agent sees.
+"""
 import asyncio
 import base64
 import json
 import sys
 
 from langchain_core.messages import HumanMessage
-from langchain_core.tools import tool
 from langchain_openai import ChatOpenAI
 
 import config
-from browser_manager import browser, status_store
+from browser_manager import browser
 
 original_url = ""
 
@@ -35,9 +38,11 @@ ANALYZE_JS = """() => {
 }"""
 
 
-def set_original_url(url: str) -> None:
+async def set_original_url(url: str) -> str:
+    """Remember the page under test, so navigate_to_original can return to it."""
     global original_url
     original_url = url
+    return f"original url set to {url}"
 
 
 async def _run_script(cmd: list[str], timeout: int) -> tuple[int | None, str, str]:
@@ -55,7 +60,6 @@ async def _run_script(cmd: list[str], timeout: int) -> tuple[int | None, str, st
 
 
 # ---------------------------------------------------------------- reporting
-@tool
 async def write_bug_report(report: str) -> str:
     """Append a bug or the final summary to the bug report file."""
     config.ensure_dirs()
@@ -64,15 +68,7 @@ async def write_bug_report(report: str) -> str:
     return f"Report saved to {config.BUG_REPORT_FILE}"
 
 
-@tool
-async def update_status(step: str, message: str = "") -> str:
-    """Update the current QA testing status shown in the Chrome extension."""
-    status_store.update(status="running", step=step, message=message)
-    return f"Status updated to: {step}"
-
-
 # --------------------------------------------------------------- navigation
-@tool
 async def navigate_to(url: str) -> str:
     """Navigates the browser to a specific URL."""
     page = await browser.init_browser()
@@ -81,7 +77,6 @@ async def navigate_to(url: str) -> str:
     return f"we reach this url: {url}"
 
 
-@tool
 async def navigate_to_original() -> str:
     """Go back to the original page after a click led to another page."""
     page = await browser.init_browser()
@@ -90,7 +85,6 @@ async def navigate_to_original() -> str:
     return f"we reach this url: {original_url}"
 
 
-@tool
 async def get_url() -> str:
     """Return the current page URL so you know whether you are still on the original page."""
     page = await browser.init_browser()
@@ -98,7 +92,6 @@ async def get_url() -> str:
 
 
 # -------------------------------------------------------------- interaction
-@tool
 async def perform_click(selector: str) -> str:
     """Clicks on a visible HTML element using a robust strategy."""
     page = await browser.init_browser()
@@ -118,7 +111,6 @@ async def perform_click(selector: str) -> str:
         return f"Failed: {selector} | Reason: {exc}"
 
 
-@tool
 async def smart_click(text: str) -> str:
     """Click an element by its visible text."""
     page = await browser.init_browser()
@@ -129,7 +121,6 @@ async def smart_click(text: str) -> str:
         return f"failed to click text: {text}"
 
 
-@tool
 async def type_text(selector: str, text: str) -> str:
     """Types text into an input field."""
     page = await browser.init_browser()
@@ -141,7 +132,6 @@ async def type_text(selector: str, text: str) -> str:
     return f"this text:{text} was filled in this {selector}"
 
 
-@tool
 async def press_key(key: str = "Enter") -> str:
     """Presses a keyboard key (e.g. 'Enter', 'Tab', 'ArrowDown')."""
     page = await browser.init_browser()
@@ -150,7 +140,6 @@ async def press_key(key: str = "Enter") -> str:
 
 
 # ------------------------------------------------------------ page analysis
-@tool
 async def analyze_page() -> str:
     """Returns CSS selectors and labels for the visible interactive elements (first 20)."""
     page = await browser.init_browser()
@@ -158,7 +147,6 @@ async def analyze_page() -> str:
     return f"Visible Interactive Elements:\n{elements}"
 
 
-@tool
 async def get_accessibility_tree() -> str:
     """Returns the page's accessibility tree: roles and structure of its elements."""
     page = await browser.init_browser()
@@ -170,7 +158,6 @@ async def get_accessibility_tree() -> str:
         return f"Failed to capture accessibility tree due to error: {exc}"
 
 
-@tool
 async def capture_screen(filename: str = "qa_evidence.png") -> str:
     """Take a screenshot as evidence of a bug."""
     page = await browser.init_browser()
@@ -183,7 +170,6 @@ async def capture_screen(filename: str = "qa_evidence.png") -> str:
         return f"Failed: {exc}"
 
 
-@tool
 async def capture_and_analyze_screen(filename: str = "qa_analysis.png") -> str:
     """Take a screenshot and describe it with a vision model (layout, elements, visible errors)."""
     page = await browser.init_browser()
@@ -209,7 +195,6 @@ async def capture_and_analyze_screen(filename: str = "qa_analysis.png") -> str:
 
 
 # ------------------------------------------------------- generated scripts
-@tool
 async def write_ui_script(filename: str, code_content: str) -> str:
     """Saves a Playwright UI test script (Python file) to disk."""
     config.ensure_dirs()
@@ -218,7 +203,6 @@ async def write_ui_script(filename: str, code_content: str) -> str:
     return f"UI Automation script saved to {path}"
 
 
-@tool
 async def run_ui_test(script_filename: str, timeout: int = 60) -> str:
     """Executes a saved Playwright UI test script and returns the console output."""
     path = config.safe_path(config.UI_TESTS_DIR, script_filename)
@@ -232,7 +216,6 @@ async def run_ui_test(script_filename: str, timeout: int = 60) -> str:
     return f"UI Test failed.\nOutput:\n{out}\nErrors:\n{err}"
 
 
-@tool
 async def write_locust_script(filename: str, code_content: str) -> str:
     """Saves a Locust test script (Python file) to disk."""
     config.ensure_dirs()
@@ -241,7 +224,6 @@ async def write_locust_script(filename: str, code_content: str) -> str:
     return f"Locust script saved to {path}"
 
 
-@tool
 async def run_locust_test(script_filename: str, host: str, users: int = 10, run_time: str = "30s") -> str:
     """Executes a Locust performance test using a previously saved script."""
     path = config.safe_path(config.LOCUST_DIR, script_filename)
@@ -260,3 +242,12 @@ async def run_locust_test(script_filename: str, host: str, users: int = 10, run_
     if code is None:
         return "Locust test timed out."
     return f"Locust test finished.\nOutput:\n{out}\nErrors:\n{err}"
+
+
+ALL_TOOLS = [
+    set_original_url, write_bug_report,
+    navigate_to, navigate_to_original, get_url,
+    perform_click, smart_click, type_text, press_key,
+    analyze_page, get_accessibility_tree, capture_screen, capture_and_analyze_screen,
+    write_ui_script, run_ui_test, write_locust_script, run_locust_test,
+]

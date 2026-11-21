@@ -1,4 +1,5 @@
 import asyncio
+import os
 import sys
 from contextlib import asynccontextmanager
 
@@ -6,28 +7,48 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from langchain.agents import create_agent
 from langchain_core.messages import HumanMessage, SystemMessage
+from langchain_core.tools import tool
+from langchain_mcp_adapters.client import MultiServerMCPClient
+from langchain_mcp_adapters.tools import load_mcp_tools
 from langchain_openai import ChatOpenAI
 
 import config
 import prompts
-import tools
-from browser_manager import browser, status_store
+from browser_manager import status_store
 from schemas import RunRequest
 
 if sys.platform == "win32":
     asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
 
+# Names of the MCP tools (see tools.py / mcp_server.py) each kind of run may use.
 BASE_TOOLS = [
-    tools.navigate_to, tools.navigate_to_original, tools.get_url,
-    tools.perform_click, tools.smart_click, tools.type_text, tools.press_key,
-    tools.analyze_page, tools.get_accessibility_tree,
-    tools.capture_screen, tools.capture_and_analyze_screen,
-    tools.write_bug_report, tools.update_status,
+    "navigate_to", "navigate_to_original", "get_url",
+    "perform_click", "smart_click", "type_text", "press_key",
+    "analyze_page", "get_accessibility_tree",
+    "capture_screen", "capture_and_analyze_screen", "write_bug_report",
 ]
-SCRIPT_TOOLS = BASE_TOOLS + [tools.write_ui_script, tools.run_ui_test]
-PERF_TOOLS = BASE_TOOLS + [tools.write_locust_script, tools.run_locust_test]
+SCRIPT_TOOLS = BASE_TOOLS + ["write_ui_script", "run_ui_test"]
+PERF_TOOLS = BASE_TOOLS + ["write_locust_script", "run_locust_test"]
 
-# One shared browser and one status store, so only one run at a time.
+MCP_SERVER = {
+    "qa": {
+        "transport": "stdio",
+        "command": sys.executable,
+        "args": [str(config.BASE_DIR / "mcp_server.py")],
+        # Pass the whole environment: the server needs OPENAI_API_KEY and the QA_* settings.
+        "env": dict(os.environ),
+    }
+}
+
+
+@tool
+async def update_status(step: str, message: str = "") -> str:
+    """Update the current QA testing status shown in the Chrome extension."""
+    status_store.update(status="running", step=step, message=message)
+    return f"Status updated to: {step}"
+
+
+# One MCP server (and browser) per run and one status store, so only one run at a time.
 run_lock = asyncio.Lock()
 
 
@@ -35,7 +56,6 @@ run_lock = asyncio.Lock()
 async def lifespan(_app: FastAPI):
     config.ensure_dirs()
     yield
-    await browser.close()
 
 
 app = FastAPI(title="QA Agent", lifespan=lifespan)
@@ -47,8 +67,8 @@ app.add_middleware(
 )
 
 
-def build_run(req: RunRequest) -> tuple[str, list, str]:
-    """Pick the system prompt, tool set and opening user message for a request."""
+def build_run(req: RunRequest) -> tuple[str, list[str], str]:
+    """Pick the system prompt, MCP tool names and opening user message for a request."""
     if req.category == "performance_test":
         params = req.performance_params
         prompt = prompts.performance_prompt(
@@ -62,11 +82,22 @@ def build_run(req: RunRequest) -> tuple[str, list, str]:
     return prompts.script_prompt(req.url), SCRIPT_TOOLS, "Write and run the UI test script."
 
 
-async def run_agent(system_prompt: str, agent_tools: list, user_message: str) -> str:
-    agent = create_agent(ChatOpenAI(model=config.AGENT_MODEL), agent_tools)
-    result = await agent.ainvoke(
-        {"messages": [SystemMessage(content=system_prompt), HumanMessage(content=user_message)]}
-    )
+async def run_agent(req: RunRequest, system_prompt: str, tool_names: list[str], user_message: str) -> str:
+    """Start the MCP tool server for this run, give the agent its tools, and return its report."""
+    client = MultiServerMCPClient(MCP_SERVER)
+    # One session for the whole run, so the browser state survives between tool calls.
+    async with client.session("qa") as session:
+        await session.call_tool("set_original_url", {"url": req.url})
+        mcp_tools = await load_mcp_tools(session)
+        by_name = {t.name: t for t in mcp_tools}
+        missing = [name for name in tool_names if name not in by_name]
+        if missing:
+            raise RuntimeError(f"MCP server is missing tools: {missing}")
+        agent_tools = [by_name[name] for name in tool_names] + [update_status]
+        agent = create_agent(ChatOpenAI(model=config.AGENT_MODEL), agent_tools)
+        result = await agent.ainvoke(
+            {"messages": [SystemMessage(content=system_prompt), HumanMessage(content=user_message)]}
+        )
     return result["messages"][-1].content
 
 
@@ -80,11 +111,10 @@ async def run_automation_test(req: RunRequest):
     if run_lock.locked():
         raise HTTPException(status_code=409, detail="A test is already running")
     async with run_lock:
-        tools.set_original_url(req.url)
-        system_prompt, agent_tools, user_message = build_run(req)
+        system_prompt, tool_names, user_message = build_run(req)
         status_store.update(status="running", step="started", message="")
         try:
-            report = await run_agent(system_prompt, agent_tools, user_message)
+            report = await run_agent(req, system_prompt, tool_names, user_message)
         except Exception as exc:
             status_store.update(status="error", step="failed", message=str(exc)[:200])
             raise HTTPException(status_code=500, detail=f"Agent run failed: {exc}") from exc

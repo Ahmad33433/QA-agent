@@ -10,7 +10,7 @@ BODY = {"url": "https://example.com", "category": "ui_test", "mode": "manual_tes
 
 @pytest.fixture
 def client(monkeypatch):
-    async def fake_agent(system_prompt, agent_tools, user_message):
+    async def fake_agent(req, system_prompt, tool_names, user_message):
         return "fake report"
 
     monkeypatch.setattr(main, "run_agent", fake_agent)
@@ -35,7 +35,7 @@ def test_invalid_request_is_rejected(client):
 def test_scenario_text_is_passed_to_agent(monkeypatch):
     seen = {}
 
-    async def fake_agent(system_prompt, agent_tools, user_message):
+    async def fake_agent(req, system_prompt, tool_names, user_message):
         seen["message"] = user_message
         return "ok"
 
@@ -48,11 +48,18 @@ def test_scenario_text_is_passed_to_agent(monkeypatch):
 def test_script_mode_gets_script_tools():
     from schemas import RunRequest
 
-    _, tool_list, _ = main.build_run(
+    _, names, _ = main.build_run(
         RunRequest(url="https://example.com", category="ui_test", mode="scripted_test")
     )
-    names = {t.name for t in tool_list}
-    assert {"write_ui_script", "run_ui_test"} <= names
+    assert {"write_ui_script", "run_ui_test"} <= set(names)
+
+
+def test_every_tool_name_exists_in_the_mcp_server():
+    import tools
+
+    published = {fn.__name__ for fn in tools.ALL_TOOLS}
+    used = set(main.BASE_TOOLS + main.SCRIPT_TOOLS + main.PERF_TOOLS)
+    assert used <= published
 
 
 def test_second_run_while_busy_gets_409(client):

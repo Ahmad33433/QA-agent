@@ -20,6 +20,36 @@ The agent has 17 tools in `backend/tools.py`: navigation, click/type/keypress, e
 the accessibility tree, screenshots (with optional vision-model analysis), script writing and
 running, and bug reporting.
 
+## How it works (MCP)
+
+```
+Chrome extension --HTTP--> FastAPI (main.py) --LangChain agent--> MCP client
+                                                                      | stdio
+                                                              MCP server (mcp_server.py)
+                                                                      |
+                                                       Playwright browser + test scripts
+```
+
+The tools are published as an [MCP](https://modelcontextprotocol.io) server. For each run the
+backend starts the server, loads its tools with `langchain-mcp-adapters`, and gives the agent only
+the tools that mode needs. The server holds the browser, so its state survives between tool calls
+and is closed when the run ends. The status tool (`update_status`) stays in the backend because it
+writes the status the extension polls.
+
+Because it is a standard MCP server, other MCP clients can use the same tools. For example, in
+Claude Desktop or Cursor add this to the MCP config (adjust the path):
+
+```json
+{
+  "mcpServers": {
+    "qa-agent-tools": {
+      "command": "uv",
+      "args": ["run", "--directory", "/path/to/QA-agent/backend", "python", "mcp_server.py"]
+    }
+  }
+}
+```
+
 ## Setup
 
 Requirements: Python 3.13+, [uv](https://docs.astral.sh/uv/), Google Chrome, an OpenAI API key.
@@ -48,9 +78,10 @@ Reports, generated scripts and screenshots are saved in `backend/artifacts/`
 
 ```
 backend/
-  main.py             FastAPI app: validation, picks prompt + tools, runs the agent
+  main.py             FastAPI app: validation, picks prompt + tools, runs the agent (MCP client)
+  mcp_server.py       MCP server that publishes the tools
   prompts.py          System prompt for each mode
-  tools.py            The agent's tools
+  tools.py            The 17 tools (plain async functions)
   schemas.py          Request validation (Pydantic)
   config.py           Settings from environment variables
   browser_manager.py  Shared Playwright browser and status
@@ -66,8 +97,9 @@ uv run pytest
 ```
 
 Covers request validation, path safety, script execution (pass, fail, timeout), the API
-(including `409` when busy), and the browser tools against a local page in headless Chromium
-(skipped if Chromium is not installed). No API key is needed to run the tests.
+(including `409` when busy), the browser tools against a local page in headless Chromium, and the
+real MCP server started over stdio (tools published, browser state kept between calls). Browser
+tests are skipped if Chromium is not installed. No API key is needed to run the tests.
 
 ## Limitations
 

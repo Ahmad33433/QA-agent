@@ -40,27 +40,27 @@ async def test_agent_tools_drive_a_real_page(site, tmp_path, monkeypatch):
     except Exception as exc:
         pytest.skip(f"Chromium not available: {exc}")
     try:
-        tools.set_original_url(site)
-        await tools.navigate_to.ainvoke({"url": site})
+        await tools.set_original_url(site)
+        await tools.navigate_to(url=site)
 
-        elements = await tools.analyze_page.ainvoke({})
+        elements = await tools.analyze_page()
         assert "#go" in elements and "#name" in elements and "/second.html" in elements
 
-        await tools.type_text.ainvoke({"selector": "#name", "text": "Ahmad"})
-        await tools.perform_click.ainvoke({"selector": "#go"})
+        await tools.type_text(selector="#name", text="Ahmad")
+        await tools.perform_click(selector="#go")
         page = await browser.init_browser()
         assert await page.inner_text("#out") == "Hello Ahmad"
 
-        assert "Failed" in await tools.perform_click.ainvoke({"selector": "#missing"})
+        assert "Failed" in await tools.perform_click(selector="#missing")
 
-        await tools.smart_click.ainvoke({"text": "Next page"})
+        await tools.smart_click(text="Next page")
         await page.wait_for_url("**/second.html")
-        assert "second.html" in await tools.get_url.ainvoke({})
-        await tools.navigate_to_original.ainvoke({})
-        assert (await tools.get_url.ainvoke({})).rstrip("/").endswith(site.split("//")[1])
+        assert "second.html" in await tools.get_url()
+        await tools.navigate_to_original()
+        assert (await tools.get_url()).rstrip("/").endswith(site.split("//")[1])
 
-        assert '"nodes"' in await tools.get_accessibility_tree.ainvoke({})
-        await tools.capture_screen.ainvoke({"filename": "shot.png"})
+        assert '"nodes"' in await tools.get_accessibility_tree()
+        await tools.capture_screen(filename="shot.png")
         assert (tmp_path / "shots" / "shot.png").stat().st_size > 0
     finally:
         await browser.close()
